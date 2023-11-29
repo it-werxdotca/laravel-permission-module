@@ -1,6 +1,6 @@
 <p align="center"><img src="/art/socialcard.png" alt="Social Card of Laravel Permission"></p>
 
-# Associate users with permissions and roles. This version of the package is useful in Laravel Modules. 
+# Associate users with permissions and roles. This version of the package is useful in Laravel Module. https://github.com/nWidart/laravel-modules
 
 ### Sponsor
 
