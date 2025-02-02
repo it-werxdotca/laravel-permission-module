@@ -3,6 +3,7 @@
 namespace Spatie\Permission\Tests;
 
 use DB;
+use Illuminate\Database\Eloquent\Model;
 use Spatie\Permission\Contracts\Permission;
 use Spatie\Permission\Contracts\Role;
 use Spatie\Permission\Exceptions\GuardDoesNotMatch;
@@ -18,6 +19,19 @@ class HasPermissionsTest extends TestCase
         $this->testUser->givePermissionTo($this->testUserPermission);
 
         $this->assertTrue($this->testUser->hasPermissionTo($this->testUserPermission));
+    }
+
+    /** @test */
+    public function it_can_assign_a_permission_to_a_user_with_a_non_default_guard()
+    {
+        $testUserPermission = app(Permission::class)->create([
+            'name' => 'edit-articles',
+            'guard_name' => 'api',
+        ]);
+
+        $this->testUser->givePermissionTo($testUserPermission);
+
+        $this->assertTrue($this->testUser->hasPermissionTo($testUserPermission));
     }
 
     /** @test */
@@ -250,7 +264,7 @@ class HasPermissionsTest extends TestCase
 
         $this->expectException(PermissionDoesNotExist::class);
 
-        $user->hasPermissionTo(new \stdClass());
+        $user->hasPermissionTo(new \stdClass);
     }
 
     /** @test */
@@ -270,7 +284,7 @@ class HasPermissionsTest extends TestCase
 
         $this->expectException(PermissionDoesNotExist::class);
 
-        $user->hasDirectPermission(new \stdClass());
+        $user->hasDirectPermission(new \stdClass);
     }
 
     /** @test */
@@ -392,7 +406,7 @@ class HasPermissionsTest extends TestCase
     /** @test */
     public function it_can_reject_a_user_that_does_not_have_any_permissions_at_all()
     {
-        $user = new User();
+        $user = new User;
 
         $this->assertFalse($user->hasPermissionTo('edit-articles'));
     }
@@ -542,6 +556,16 @@ class HasPermissionsTest extends TestCase
     }
 
     /** @test */
+    public function it_can_avoid_sync_duplicated_permissions()
+    {
+        $this->testUser->syncPermissions('edit-articles', 'edit-blog', 'edit-blog');
+
+        $this->assertTrue($this->testUser->hasDirectPermission('edit-articles'));
+
+        $this->assertTrue($this->testUser->hasDirectPermission('edit-blog'));
+    }
+
+    /** @test */
     public function it_can_sync_multiple_permissions_by_id()
     {
         $this->testUser->givePermissionTo('edit-news');
@@ -613,6 +637,7 @@ class HasPermissionsTest extends TestCase
         $user = new User(['email' => 'test@user.com']);
         $user->syncPermissions('edit-articles');
         $user->save();
+        $user->save(); // test save same model twice
 
         $this->assertTrue($user->hasPermissionTo('edit-articles'));
 
@@ -630,7 +655,7 @@ class HasPermissionsTest extends TestCase
         $this->testUser->syncPermissions($this->testUserPermission, $permission2);
         DB::disableQueryLog();
 
-        $this->assertSame(2, count(DB::getQueryLog())); //avoid unnecessary sqls
+        $this->assertSame(2, count(DB::getQueryLog())); // avoid unnecessary sqls
     }
 
     /** @test */
@@ -652,7 +677,7 @@ class HasPermissionsTest extends TestCase
 
         $this->assertTrue($user2->fresh()->hasPermissionTo('edit-articles'));
         $this->assertFalse($user2->fresh()->hasPermissionTo('edit-news'));
-        $this->assertSame(2, count(DB::getQueryLog())); //avoid unnecessary sync
+        $this->assertSame(2, count(DB::getQueryLog())); // avoid unnecessary sync
     }
 
     /** @test */
@@ -674,7 +699,7 @@ class HasPermissionsTest extends TestCase
 
         $this->assertTrue($user2->fresh()->hasPermissionTo('edit-articles'));
         $this->assertFalse($user2->fresh()->hasPermissionTo('edit-news'));
-        $this->assertSame(2, count(DB::getQueryLog())); //avoid unnecessary sync
+        $this->assertSame(2, count(DB::getQueryLog())); // avoid unnecessary sync
     }
 
     /** @test */
@@ -740,5 +765,38 @@ class HasPermissionsTest extends TestCase
         $response->assertJson([
             'status' => false,
         ]);
+    }
+
+    /** @test */
+    public function it_can_be_given_a_permission_on_role_when_lazy_loading_is_restricted()
+    {
+        $this->assertTrue(Model::preventsLazyLoading());
+
+        try {
+            $testRole = app(Role::class)->with('permissions')->get()->first();
+
+            $testRole->givePermissionTo('edit-articles');
+
+            $this->assertTrue($testRole->hasPermissionTo('edit-articles'));
+        } catch (Exception $e) {
+            $this->fail('Lazy loading detected in the givePermissionTo method: '.$e->getMessage());
+        }
+    }
+
+    /** @test */
+    public function it_can_be_given_a_permission_on_user_when_lazy_loading_is_restricted()
+    {
+        $this->assertTrue(Model::preventsLazyLoading());
+
+        try {
+            User::create(['email' => 'other@user.com']);
+            $testUser = User::with('permissions')->get()->first();
+
+            $testUser->givePermissionTo('edit-articles');
+
+            $this->assertTrue($testUser->hasPermissionTo('edit-articles'));
+        } catch (Exception $e) {
+            $this->fail('Lazy loading detected in the givePermissionTo method: '.$e->getMessage());
+        }
     }
 }

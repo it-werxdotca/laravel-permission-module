@@ -2,7 +2,9 @@
 
 namespace Spatie\Permission\Tests;
 
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\DB;
+use Spatie\Permission\Contracts\Permission;
 use Spatie\Permission\Contracts\Role;
 use Spatie\Permission\Exceptions\GuardDoesNotMatch;
 use Spatie\Permission\Exceptions\RoleDoesNotExist;
@@ -47,23 +49,43 @@ class HasRolesTest extends TestCase
     {
         $enum1 = TestModels\TestRolePermissionsEnum::USERMANAGER;
         $enum2 = TestModels\TestRolePermissionsEnum::WRITER;
+        $enum3 = TestModels\TestRolePermissionsEnum::CASTED_ENUM_1;
+        $enum4 = TestModels\TestRolePermissionsEnum::CASTED_ENUM_2;
 
         app(Role::class)->findOrCreate($enum1->value, 'web');
         app(Role::class)->findOrCreate($enum2->value, 'web');
+        app(Role::class)->findOrCreate($enum3->value, 'web');
+        app(Role::class)->findOrCreate($enum4->value, 'web');
 
         $this->assertFalse($this->testUser->hasRole($enum1));
         $this->assertFalse($this->testUser->hasRole($enum2));
+        $this->assertFalse($this->testUser->hasRole($enum3));
+        $this->assertFalse($this->testUser->hasRole($enum4));
+        $this->assertFalse($this->testUser->hasRole('user-manager'));
+        $this->assertFalse($this->testUser->hasRole('writer'));
+        $this->assertFalse($this->testUser->hasRole('casted_enum-1'));
+        $this->assertFalse($this->testUser->hasRole('casted_enum-2'));
 
         $this->testUser->assignRole($enum1);
         $this->testUser->assignRole($enum2);
+        $this->testUser->assignRole($enum3);
+        $this->testUser->assignRole($enum4);
 
         $this->assertTrue($this->testUser->hasRole($enum1));
         $this->assertTrue($this->testUser->hasRole($enum2));
+        $this->assertTrue($this->testUser->hasRole($enum3));
+        $this->assertTrue($this->testUser->hasRole($enum4));
 
-        $this->assertTrue($this->testUser->hasAllRoles([$enum1, $enum2]));
-        $this->assertFalse($this->testUser->hasAllRoles([$enum1, $enum2, 'not exist']));
+        $this->assertTrue($this->testUser->hasRole([$enum1, 'writer']));
+        $this->assertTrue($this->testUser->hasRole([$enum3, 'casted_enum-2']));
 
-        $this->assertTrue($this->testUser->hasExactRoles([$enum2, $enum1]));
+        $this->assertTrue($this->testUser->hasAllRoles([$enum1, $enum2, $enum3, $enum4]));
+        $this->assertTrue($this->testUser->hasAllRoles(['user-manager', 'writer', 'casted_enum-1', 'casted_enum-2']));
+        $this->assertFalse($this->testUser->hasAllRoles([$enum1, $enum2, $enum3, $enum4, 'not exist']));
+        $this->assertFalse($this->testUser->hasAllRoles(['user-manager', 'writer', 'casted_enum-1', 'casted_enum-2', 'not exist']));
+
+        $this->assertTrue($this->testUser->hasExactRoles([$enum4, $enum3, $enum2, $enum1]));
+        $this->assertTrue($this->testUser->hasExactRoles(['user-manager', 'writer', 'casted_enum-1', 'casted_enum-2']));
 
         $this->testUser->removeRole($enum1);
 
@@ -260,6 +282,16 @@ class HasRolesTest extends TestCase
     }
 
     /** @test */
+    public function it_can_avoid_sync_duplicated_roles()
+    {
+        $this->testUser->syncRoles('testRole', 'testRole', 'testRole2');
+
+        $this->assertTrue($this->testUser->hasRole('testRole'));
+
+        $this->assertTrue($this->testUser->hasRole('testRole2'));
+    }
+
+    /** @test */
     public function it_can_sync_multiple_roles()
     {
         $this->testUser->syncRoles('testRole', 'testRole2');
@@ -311,6 +343,7 @@ class HasRolesTest extends TestCase
         $user = new User(['email' => 'test@user.com']);
         $user->syncRoles([$this->testUserRole]);
         $user->save();
+        $user->save(); // test save same model twice
 
         $this->assertTrue($user->hasRole($this->testUserRole));
 
@@ -328,7 +361,7 @@ class HasRolesTest extends TestCase
         $this->testUser->syncRoles($this->testUserRole, $role2);
         DB::disableQueryLog();
 
-        $this->assertSame(2, count(DB::getQueryLog())); //avoid unnecessary sqls
+        $this->assertSame(2, count(DB::getQueryLog())); // avoid unnecessary sqls
     }
 
     /** @test */
@@ -350,7 +383,7 @@ class HasRolesTest extends TestCase
 
         $this->assertTrue($user2->fresh()->hasRole('testRole2'));
         $this->assertFalse($user2->fresh()->hasRole('testRole'));
-        $this->assertSame(2, count(DB::getQueryLog())); //avoid unnecessary sync
+        $this->assertSame(2, count(DB::getQueryLog())); // avoid unnecessary sync
     }
 
     /** @test */
@@ -372,7 +405,7 @@ class HasRolesTest extends TestCase
 
         $this->assertTrue($admin_user->fresh()->hasRole('testRole2'));
         $this->assertFalse($admin_user->fresh()->hasRole('testRole'));
-        $this->assertSame(2, count(DB::getQueryLog())); //avoid unnecessary sync
+        $this->assertSame(2, count(DB::getQueryLog())); // avoid unnecessary sync
     }
 
     /** @test */
@@ -800,9 +833,7 @@ class HasRolesTest extends TestCase
     {
         $this->expectException(\TypeError::class);
 
-        $this->testUser->hasRole(new class
-        {
-        });
+        $this->testUser->hasRole(new class {});
     }
 
     /** @test */
@@ -826,5 +857,37 @@ class HasRolesTest extends TestCase
         $user = SoftDeletingUser::withTrashed()->find($user->id);
 
         $this->assertTrue($user->hasRole('testRole'));
+    }
+
+    /** @test */
+    public function it_can_be_given_a_role_on_permission_when_lazy_loading_is_restricted()
+    {
+        $this->assertTrue(Model::preventsLazyLoading());
+
+        try {
+            $testPermission = app(Permission::class)->with('roles')->get()->first();
+
+            $testPermission->assignRole('testRole');
+
+            $this->assertTrue($testPermission->hasRole('testRole'));
+        } catch (Exception $e) {
+            $this->fail('Lazy loading detected in the givePermissionTo method: '.$e->getMessage());
+        }
+    }
+
+    /** @test */
+    public function it_can_be_given_a_role_on_user_when_lazy_loading_is_restricted()
+    {
+        $this->assertTrue(Model::preventsLazyLoading());
+
+        try {
+            User::create(['email' => 'other@user.com']);
+            $user = User::with('roles')->get()->first();
+            $user->assignRole('testRole');
+
+            $this->assertTrue($user->hasRole('testRole'));
+        } catch (Exception $e) {
+            $this->fail('Lazy loading detected in the givePermissionTo method: '.$e->getMessage());
+        }
     }
 }

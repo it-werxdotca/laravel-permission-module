@@ -10,9 +10,12 @@ Role and Permission data are cached to speed up performance.
 When you **use the built-in functions** for manipulating roles and permissions, the cache is automatically reset for you, and relations are automatically reloaded for the current model record:
 
 ```php
+// When handling permissions assigned to roles:
 $role->givePermissionTo('edit articles');
 $role->revokePermissionTo('edit articles');
 $role->syncPermissions(params);
+
+// When linking roles to permissions:
 $permission->assignRole('writer');
 $permission->removeRole('writer');
 $permission->syncRoles(params);
@@ -25,7 +28,7 @@ Additionally, because the Role and Permission models are Eloquent models which i
 **NOTE: User-specific role/permission assignments are kept in-memory since v4.4.0, so the cache-reset is no longer called since v5.1.0 when updating User-related assignments.**
 Examples:
 ```php
-// These do not call a cache-reset, because the User-related assignments are in-memory.
+// These operations on a User do not call a cache-reset, because the User-related assignments are in-memory.
 $user->assignRole('writer');
 $user->removeRole('writer');
 $user->syncRoles(params);
@@ -44,6 +47,8 @@ php artisan permission:cache-reset
 (This command is effectively an alias for `artisan cache:forget spatie.permission.cache` but respects the package config as well.)
 
 ## Cache Configuration Settings
+
+This package allows you to customize cache-related operations via its config file. In most cases the defaults are fine; however, in a multitenancy situation you may wish to do some cache-prefix overrides when switching tenants. See below for more details.
 
 ### Cache Expiration Time
 
@@ -79,10 +84,15 @@ Setting `'cache.store' => 'array'` in `config/permission.php` will effectively d
 Alternatively, in development mode you can bypass ALL of Laravel's caching between visits by setting `CACHE_DRIVER=array` in `.env`. You can see an example of this in the default `phpunit.xml` file that comes with a new Laravel install. Of course, don't do this in production though!
 
 
-## File cache driver
+## File cache Store
 
 This situation is not specific to this package, but is mentioned here due to the common question being asked.
 
-If you are using the `File` cache driver and run into problems clearing the cache, it is most likely because your filesystem's permissions are preventing the PHP CLI from altering the cache files because the PHP-FPM process is running as a different user. 
+If you are using the `File` cache Store and run into problems clearing the cache, it is most likely because your filesystem's permissions are preventing the PHP CLI from altering the cache files because the PHP-FPM process is running as a different user. 
 
 Work with your server administrator to fix filesystem ownership on your cache files.
+
+## Database cache Store
+
+TIP: If you have `CACHE_STORE=database` set in your `.env`, remember that [you must install Laravel's cache tables via a migration before performing any cache operations](https://laravel.com/docs/cache#prerequisites-database). If you fail to install those migrations, you'll run into errors like `Call to a member function perform() on null` when the cache store attempts to purge or update the cache. This package does strategic cache resets in various places, so may trigger that error if your app's cache dependencies aren't set up.
+
